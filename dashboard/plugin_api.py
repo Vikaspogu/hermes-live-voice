@@ -729,6 +729,46 @@ if router is not None:
         return {"ok": True, "output": output}
 
     @router.post("/codex/login/start")
+    @router.post("/codexlive/delegate")
+    async def codexlive_delegate(request: Request) -> dict:
+        """Web-client voice delegation: run the delegated task one-shot via the
+        Hermes agent (same toolsets as the chat) and return the text so the voice
+        model can read it aloud. Desktop uses the focused chat session instead."""
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        language = body.get("language")
+        prompt = str(body.get("prompt") or "").strip()
+        if not prompt:
+            raise HTTPException(status_code=400, detail="prompt is required" if language == "en" else "prompt requerido")
+        async def _run_delegate() -> str:
+            proc = await asyncio.create_subprocess_exec(
+                "/opt/hermes/.venv/bin/hermes", "-z", prompt, "--yolo", "-m", "gpt-6-sol",
+                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+            )
+            try:
+                out, _ = await asyncio.wait_for(proc.communicate(), timeout=100)
+            except asyncio.TimeoutError:
+                try:
+                    proc.kill()
+                except Exception:  # noqa: BLE001
+                    pass
+                out = b"The task is still running; tell the user you will check the result in a moment."
+            output = (out or b"").decode("utf-8", "replace").strip()
+            if proc.returncode not in (0, None):
+                output = output or f"Agent exited with code {proc.returncode}."
+            return output
+
+        try:
+            output = await _run_delegate()
+            if "Execution outcome is unknown" in output:
+                # ponytail: one retry for transient lane failures (e.g. model spawn dying before first response)
+                output = await _run_delegate()
+            return {"ok": True, "output": output[:3500]}
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"delegate failed: {exc}") from exc
+
     async def codex_login_start() -> dict:
         return await asyncio.to_thread(_start_codex_login)
 
@@ -843,6 +883,16 @@ def _codex_binary() -> str | None:
 
 
 def _cl_ensure() -> None:
+    # PATCH (agent-platform-custom): codex app-server refuses to start when
+    # CODEX_HOME points at a missing directory (exits 1 before replying to
+    # initialize), which surfaced as "codex app-server: initialize sin
+    # respuesta" on a fresh volume. Create it before spawning. Removable once
+    # upstream guards this itself.
+    _cx_home = os.environ.get("CODEX_HOME") or str(Path.home() / ".codex")
+    try:
+        Path(_cx_home).mkdir(parents=True, exist_ok=True)
+    except Exception:  # noqa: BLE001
+        pass
     proc = _CL["proc"]
     if proc is not None and proc.poll() is None:
         return

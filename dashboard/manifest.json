@@ -1,4 +1,5 @@
 {
   "name": "talk-desktop",
-  "api": "plugin_api.py"
+  "api": "plugin_api.py",
+  "entry": "dist/index.js"
 }

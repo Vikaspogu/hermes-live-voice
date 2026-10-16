@@ -18,6 +18,7 @@ import sys
 import textwrap
 import threading
 import time
+from fastapi import HTTPException
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -195,6 +196,17 @@ def test_codexlive_start_compatible_server_drops_nothing():
     assert len(sent) == 1 and sent[0]["clientManagedHandoffs"] is True
     assert result["handoff"] == "client"
     assert "droppedFields" not in result and "handoffDegraded" not in result and "warning" not in result
+
+
+def test_codexlive_delegate_rejects_empty_prompt():
+    class _Req:
+        async def json(self):
+            return {}
+    ns = load_unit(PLUGIN_API, "codexlive_delegate")
+    ns["HTTPException"] = HTTPException
+    with pytest.raises(HTTPException) as ei:
+        asyncio.run(ns["codexlive_delegate"](_Req()))
+    assert ei.value.status_code == 400
 
 
 def test_codexlive_start_drops_only_the_named_optional_field():

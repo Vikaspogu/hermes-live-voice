@@ -12,7 +12,7 @@ for the voice lane.
 [![Version](https://img.shields.io/badge/version-0.2.6-informational)](plugin.yaml)
 [![Status: preview](https://img.shields.io/badge/status-preview-orange)](#status--roadmap)
 
-[![Live Voice demo: a spoken request is delegated to the open chat and the answer is read back](docs/media/live-voice-demo.gif)](docs/media/live-voice-demo.mp4)
+[![Live Voice demo: a spoken request is delegated to the open chat and the answer is read back](upstream README)](upstream README)
 
 <sub>Real call recorded in Hermes Desktop: the bot voice is the live engine, the "user" voice is TTS. Click for the MP4 with sound.</sub>
 
@@ -46,11 +46,11 @@ for the voice lane.
 
 <table>
 <tr>
-<td width="62%"><img src="docs/media/live-transcript.png" alt="Live transcript popover next to the chat: the spoken request, the delegated task chip and the answer"></td>
-<td><img src="docs/media/settings-panel.png" alt="Live Voice settings: bot, voice engine, voice, work in the chat, microphone and output"></td>
+<td width="62%"><img src="upstream README" alt="Live transcript popover next to the chat: the spoken request, the delegated task chip and the answer"></td>
+<td><img src="upstream README" alt="Live Voice settings: bot, voice engine, voice, work in the chat, microphone and output"></td>
 </tr>
 <tr>
-<td colspan="2"><img src="docs/media/composer-controls.png" alt="Composer with the Live Voice controls"></td>
+<td colspan="2"><img src="upstream README" alt="Composer with the Live Voice controls"></td>
 </tr>
 </table>
 
