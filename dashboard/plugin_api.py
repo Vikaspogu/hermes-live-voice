@@ -744,7 +744,7 @@ if router is not None:
             raise HTTPException(status_code=400, detail="prompt is required" if language == "en" else "prompt requerido")
         async def _run_delegate() -> str:
             proc = await asyncio.create_subprocess_exec(
-                "/opt/hermes/.venv/bin/hermes", "-z", prompt, "--yolo", "-m", "gpt-6-sol",
+                "/opt/hermes/.venv/bin/hermes", "-z", prompt, "--yolo",
                 stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
             )
             try:
