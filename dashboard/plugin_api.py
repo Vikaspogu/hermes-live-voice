@@ -728,12 +728,15 @@ if router is not None:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"ok": True, "output": output}
 
+    _DELEGATE_LOCK = asyncio.Lock()
+    _DELEGATE_SESSION_KEY = "voice-delegate"
+
     @router.post("/codex/login/start")
     @router.post("/codexlive/delegate")
     async def codexlive_delegate(request: Request) -> dict:
-        """Web-client voice delegation: run the delegated task one-shot via the
-        Hermes agent (same toolsets as the chat) and return the text so the voice
-        model can read it aloud. Desktop uses the focused chat session instead."""
+        """Web-client voice delegation: submit the task to a long-lived dashboard
+        session (same agent + toolsets as the chat, no ~50s cold spawn) and return
+        the final assistant text so the voice model can read it aloud."""
         try:
             body = await request.json()
         except Exception:  # noqa: BLE001
@@ -742,30 +745,49 @@ if router is not None:
         prompt = str(body.get("prompt") or "").strip()
         if not prompt:
             raise HTTPException(status_code=400, detail="prompt is required" if language == "en" else "prompt requerido")
-        async def _run_delegate() -> str:
-            proc = await asyncio.create_subprocess_exec(
-                "/opt/hermes/.venv/bin/hermes", "-z", prompt, "--yolo",
-                stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
-            )
-            try:
-                out, _ = await asyncio.wait_for(proc.communicate(), timeout=100)
-            except asyncio.TimeoutError:
-                try:
-                    proc.kill()
-                except Exception:  # noqa: BLE001
-                    pass
-                out = b"The task is still running; tell the user you will check the result in a moment."
-            output = (out or b"").decode("utf-8", "replace").strip()
-            if proc.returncode not in (0, None):
-                output = output or f"Agent exited with code {proc.returncode}."
-            return output
+        try:
+            from tui_gateway import server as _tui_server
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"delegate backend unavailable: {exc}") from exc
+
+        def _rpc(method: str, params: dict) -> dict:
+            return _tui_server.handle_request(
+                {"jsonrpc": "2.0", "id": f"voice-delegate-{method}", "method": method, "params": params}
+            ) or {}
 
         try:
-            output = await _run_delegate()
-            if "Execution outcome is unknown" in output:
-                # ponytail: one retry for transient lane failures (e.g. model spawn dying before first response)
-                output = await _run_delegate()
-            return {"ok": True, "output": output[:3500]}
+            async with _DELEGATE_LOCK:
+                created = await asyncio.to_thread(_rpc, "session.create", {"idempotency_key": _DELEGATE_SESSION_KEY})
+                sid = (created.get("result") or {}).get("session_id")
+                if not sid:
+                    raise HTTPException(status_code=500, detail=f"delegate session unavailable: {created.get('error')}")
+                base = await asyncio.to_thread(_rpc, "session.history", {"session_id": sid})
+                base_count = int((base.get("result") or {}).get("count") or 0)
+                submitted = await asyncio.to_thread(_rpc, "prompt.submit", {"session_id": sid, "text": prompt})
+                if submitted.get("error"):
+                    raise HTTPException(status_code=500, detail=f"delegate submit failed: {submitted['error']}")
+                answer = ""
+                last_text = None
+                # ponytail: poll history; done when the tail is a stable assistant message. 50*2s = old 100s cap.
+                for _ in range(50):
+                    await asyncio.sleep(2)
+                    hist = await asyncio.to_thread(_rpc, "session.history", {"session_id": sid})
+                    result = hist.get("result") or {}
+                    msgs = result.get("messages") or []
+                    if int(result.get("count") or 0) < base_count + 2 or not msgs:
+                        continue
+                    if msgs[-1].get("role") != "assistant":
+                        continue
+                    text = msgs[-1].get("text") or ""
+                    if text and text == last_text:
+                        answer = text
+                        break
+                    last_text = text
+                if not answer:
+                    answer = "The task is still running; tell the user you will check the result in a moment."
+                return {"ok": True, "output": answer[:3500]}
+        except HTTPException:
+            raise
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"delegate failed: {exc}") from exc
 
